@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: knowledge-assistant-runtime
+  labels:
+    app: knowledge-assistant
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: knowledge-assistant
+    component: backend
+  ports:
+  - name: http
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
+  sessionAffinity: None

@@ -1,0 +1,60 @@
+name: CD Staging Deployment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  ARGOCD_SERVER: argocd.example.com
+  ARGOCD_APP_NAME: knowledge-assistant-staging
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.knowledge-assistant.example.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+
+      - name: Login to ArgoCD
+        env:
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+        run: |
+          argocd login ${{ env.ARGOCD_SERVER }} --auth-token=$ARGOCD_AUTH_TOKEN --grpc-web
+
+      - name: Update application to sync from new commit
+        run: |
+          argocd app set ${{ env.ARGOCD_APP_NAME }} --revision ${{ github.sha }}
+
+      - name: Sync application
+        run: |
+          argocd app sync ${{ env.ARGOCD_APP_NAME }} --prune
+
+      - name: Wait for application to be healthy
+        run: |
+          argocd app wait ${{ env.ARGOCD_APP_NAME }} --health --timeout 600
+
+      - name: Get application status
+        run: |
+          argocd app get ${{ env.ARGOCD_APP_NAME }}
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "Staging deployment successful for commit ${{ github.sha }}"
+
+      - name: Notify deployment failure
+        if: failure()
+        run: |
+          echo "Staging deployment failed for commit ${{ github.sha }}"
+          exit 1

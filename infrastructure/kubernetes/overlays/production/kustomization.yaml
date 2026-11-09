@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: knowledge-assistant-production
+
+namePrefix: prod-
+
+bases:
+- ../../base
+
+commonLabels:
+  environment: production
+
+patchesStrategicMerge:
+- replica-patch.yaml
+- resource-patch.yaml
+
+configMapGenerator:
+- name: backend-config
+  literals:
+  - auth-api-url=http://auth-api.default.svc.cluster.local
+  - user-service-url=http://user-service.default.svc.cluster.local
+  - cors-origins=https://knowledge-assistant.example.com
+
+- name: frontend-config
+  literals:
+  - api-url=https://knowledge-assistant.example.com/api
+
+images:
+- name: knowledge-assistant-backend
+  newTag: v1.0.0
+- name: knowledge-assistant-frontend
+  newTag: v1.0.0

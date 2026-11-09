@@ -1,0 +1,101 @@
+name: CD Production Deployment
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to deploy'
+        required: true
+        type: string
+
+env:
+  ARGOCD_SERVER: argocd.example.com
+  ARGOCD_APP_NAME: knowledge-assistant-production
+
+jobs:
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://knowledge-assistant.example.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine deployment tag
+        id: deployment-tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate tag format
+        run: |
+          TAG=${{ steps.deployment-tag.outputs.tag }}
+          if ! [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid tag format: $TAG. Must be vX.Y.Z"
+            exit 1
+          fi
+
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+
+      - name: Login to ArgoCD
+        env:
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+        run: |
+          argocd login ${{ env.ARGOCD_SERVER }} --auth-token=$ARGOCD_AUTH_TOKEN --grpc-web
+
+      - name: Update application to sync from release tag
+        run: |
+          TAG=${{ steps.deployment-tag.outputs.tag }}
+          argocd app set ${{ env.ARGOCD_APP_NAME }} --revision $TAG
+
+      - name: Sync application
+        run: |
+          argocd app sync ${{ env.ARGOCD_APP_NAME }} --prune
+
+      - name: Wait for application to be healthy
+        run: |
+          argocd app wait ${{ env.ARGOCD_APP_NAME }} --health --timeout 900
+
+      - name: Get application status
+        run: |
+          argocd app get ${{ env.ARGOCD_APP_NAME }}
+
+      - name: Run smoke tests
+        run: |
+          # Wait for ingress to be ready
+          sleep 30
+          
+          # Health check
+          HEALTH_URL="https://knowledge-assistant.example.com/api/v1/health"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL)
+          
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "Health check failed with HTTP code $HTTP_CODE"
+            exit 1
+          fi
+          
+          echo "Smoke tests passed"
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          TAG=${{ steps.deployment-tag.outputs.tag }}
+          echo "Production deployment successful for tag $TAG"
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Production deployment failed, initiating rollback"
+          argocd app rollback ${{ env.ARGOCD_APP_NAME }}
+          exit 1

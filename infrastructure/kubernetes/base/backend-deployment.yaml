@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: knowledge-assistant-runtime
+  labels:
+    app: knowledge-assistant
+    component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: knowledge-assistant
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: knowledge-assistant
+        component: backend
+    spec:
+      serviceAccountName: knowledge-assistant-backend
+      containers:
+      - name: backend
+        image: knowledge-assistant-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 9000
+          name: http
+          protocol: TCP
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: database-url
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: secret-key
+        - name: AUTH_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: auth-api-url
+        - name: USER_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: user-service-url
+        - name: CORS_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: cors-origins
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: DEBUG
+          value: "false"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 9000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: component
+                  operator: In
+                  values:
+                  - backend
+              topologyKey: topology.kubernetes.io/zone
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: knowledge-assistant-backend
+  namespace: knowledge-assistant-runtime

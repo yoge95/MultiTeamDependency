@@ -1,0 +1,338 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+env:
+  PYTHON_VERSION: '3.10'
+  NODE_VERSION: '18'
+
+jobs:
+  backend-lint:
+    name: Backend Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install .
+          pip install ruff
+
+      - name: Run ruff
+        run: |
+          cd backend
+          python -m ruff check app/
+
+  backend-typecheck:
+    name: Backend Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install .
+          pip install mypy
+
+      - name: Run mypy
+        run: |
+          cd backend
+          python -m mypy app/ --ignore-missing-imports
+
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install .
+          pip install pytest pytest-cov
+
+      - name: Run tests
+        run: |
+          cd backend
+          pytest tests/ -v --cov=app --cov-report=xml --cov-report=term --junitxml=test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: backend/test-results.xml
+
+  backend-security:
+    name: Backend Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install .
+          pip install bandit pip-audit
+
+      - name: Run bandit security scanner
+        run: |
+          cd backend
+          python -m bandit -r app/ -f json -o bandit-report.json || true
+          python -m bandit -r app/ || exit 0
+
+      - name: Run pip-audit
+        run: |
+          cd backend
+          pip-audit --desc --format json --output pip-audit-report.json || true
+          pip-audit --desc
+
+      - name: Check for critical vulnerabilities
+        run: |
+          cd backend
+          if [ -f pip-audit-report.json ]; then
+            CRITICAL_COUNT=$(python -c "import json; data=json.load(open('pip-audit-report.json')); print(sum(1 for dep in data.get('dependencies', []) for vuln in dep.get('vulnerabilities', []) if vuln.get('severity', '').lower() == 'critical'))" 2>/dev/null || echo "0")
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo "Found $CRITICAL_COUNT critical vulnerabilities"
+              exit 1
+            fi
+          fi
+
+  frontend-lint:
+    name: Frontend Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run ESLint
+        run: |
+          cd frontend
+          npx eslint src/ --ext .ts,.tsx --max-warnings 10
+
+  frontend-typecheck:
+    name: Frontend Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run TypeScript compiler
+        run: |
+          cd frontend
+          npx tsc --noEmit
+
+  frontend-test:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run tests
+        run: |
+          cd frontend
+          CI=true npm test -- --run --reporter=junit --reporter=default --outputFile=test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-results
+          path: frontend/test-results.xml
+
+  frontend-security:
+    name: Frontend Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run npm audit
+        run: |
+          cd frontend
+          npm audit --audit-level=high --json > npm-audit-report.json || true
+          npm audit --audit-level=high
+
+      - name: Check for critical vulnerabilities
+        run: |
+          cd frontend
+          if [ -f npm-audit-report.json ]; then
+            CRITICAL_COUNT=$(node -e "const data=require('./npm-audit-report.json'); const criticals=Object.values(data.vulnerabilities||{}).filter(v=>v.severity==='critical').length; console.log(criticals);" 2>/dev/null || echo "0")
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo "Found $CRITICAL_COUNT critical vulnerabilities"
+              exit 1
+            fi
+          fi
+
+  build-backend-image:
+    name: Build Backend Docker Image
+    runs-on: ubuntu-latest
+    needs: [backend-lint, backend-typecheck, backend-test, backend-security]
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        run: |
+          cd backend
+          docker build -t knowledge-assistant-backend:${{ github.sha }} .
+
+      - name: Save backend image
+        run: |
+          docker save knowledge-assistant-backend:${{ github.sha }} | gzip > backend-image.tar.gz
+
+      - name: Upload backend image
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-image
+          path: backend-image.tar.gz
+          retention-days: 7
+
+  build-frontend-image:
+    name: Build Frontend Docker Image
+    runs-on: ubuntu-latest
+    needs: [frontend-lint, frontend-typecheck, frontend-test, frontend-security]
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build frontend image
+        run: |
+          cd frontend
+          docker build -t knowledge-assistant-frontend:${{ github.sha }} .
+
+      - name: Save frontend image
+        run: |
+          docker save knowledge-assistant-frontend:${{ github.sha }} | gzip > frontend-image.tar.gz
+
+      - name: Upload frontend image
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-image
+          path: frontend-image.tar.gz
+          retention-days: 7
+
+  validate-manifests:
+    name: Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.28.0'
+
+      - name: Validate base manifests
+        run: |
+          cd infrastructure/kubernetes/base
+          kubectl apply --dry-run=client -k .
+
+      - name: Validate development overlay
+        run: |
+          cd infrastructure/kubernetes/overlays/development
+          kubectl apply --dry-run=client -k .
+
+      - name: Validate test overlay
+        run: |
+          cd infrastructure/kubernetes/overlays/test
+          kubectl apply --dry-run=client -k .
+
+      - name: Validate staging overlay
+        run: |
+          cd infrastructure/kubernetes/overlays/staging
+          kubectl apply --dry-run=client -k .
+
+      - name: Validate production overlay
+        run: |
+          cd infrastructure/kubernetes/overlays/production
+          kubectl apply --dry-run=client -k .

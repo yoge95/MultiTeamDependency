@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: knowledge-assistant-test
+
+namePrefix: test-
+
+bases:
+- ../../base
+
+commonLabels:
+  environment: test
+
+patchesStrategicMerge:
+- replica-patch.yaml
+
+configMapGenerator:
+- name: backend-config
+  literals:
+  - auth-api-url=http://auth-api-test.default.svc.cluster.local
+  - user-service-url=http://user-service-test.default.svc.cluster.local
+  - cors-origins=http://test.knowledge-assistant.example.com
+
+- name: frontend-config
+  literals:
+  - api-url=http://test.knowledge-assistant.example.com/api
+
+images:
+- name: knowledge-assistant-backend
+  newTag: test-latest
+- name: knowledge-assistant-frontend
+  newTag: test-latest

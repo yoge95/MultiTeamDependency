@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: knowledge-assistant-dev
+
+namePrefix: dev-
+
+bases:
+- ../../base
+
+commonLabels:
+  environment: development
+
+patchesStrategicMerge:
+- replica-patch.yaml
+- resource-patch.yaml
+- config-patch.yaml
+
+configMapGenerator:
+- name: backend-config
+  literals:
+  - auth-api-url=http://auth-api-dev.default.svc.cluster.local
+  - user-service-url=http://user-service-dev.default.svc.cluster.local
+  - cors-origins=http://localhost:5173,http://dev.knowledge-assistant.example.com
+
+- name: frontend-config
+  literals:
+  - api-url=http://dev.knowledge-assistant.example.com/api
+
+images:
+- name: knowledge-assistant-backend
+  newTag: dev-latest
+- name: knowledge-assistant-frontend
+  newTag: dev-latest

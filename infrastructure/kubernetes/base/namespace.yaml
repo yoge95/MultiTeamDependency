@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: knowledge-assistant-runtime
+  labels:
+    app: knowledge-assistant
+    environment: base
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: knowledge-assistant-admin
+  labels:
+    app: knowledge-assistant
+    environment: base

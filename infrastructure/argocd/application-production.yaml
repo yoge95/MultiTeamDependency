@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: knowledge-assistant-production
+  namespace: argocd
+  labels:
+    app: knowledge-assistant
+    environment: production
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/your-org/multiteamdependency.git
+    targetRevision: v1.0.0
+    path: infrastructure/kubernetes/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: knowledge-assistant-production
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false
+      allowEmpty: false
+    syncOptions:
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    retry:
+      limit: 2
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
